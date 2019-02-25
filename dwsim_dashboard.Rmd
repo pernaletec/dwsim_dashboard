@@ -6,6 +6,8 @@ output:
     favicon: dwsim_icon_.png
     source_code: "https://github.com/pernaletec/dwsim_dashboard"
     social: [ "twitter", "facebook", "instagram", "pinterest" ]
+    includes: 
+      in_header: "google-analytics.html"
 runtime: shiny
 ---
 
@@ -21,9 +23,6 @@ library(RColorBrewer)
 ```
 
 ```{r, include=FALSE}
-
-# -- Add Tracking JS File 
-tags$head(includeHTML("google-analytics.html"))
 
 create_address = function(start_date, end_date){
   
