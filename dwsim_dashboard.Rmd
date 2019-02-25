@@ -1,0 +1,347 @@
+---
+title: "DWSIM worldwide"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    favicon: dwsim_icon_.png
+    source_code: "https://github.com/pernaletec/dwsim_dashboard"
+    social: [ "twitter", "facebook", "instagram", "pinterest" ]
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+
+library(flexdashboard)
+library(rmarkdown)
+library(highcharter)
+library(rjson)
+library(jsonlite)
+library(dplyr)
+library(RColorBrewer)
+```
+
+```{r, include=FALSE}
+
+# -- Add Tracking JS File 
+tags$head(includeHTML("google-analytics.html"))
+
+create_address = function(start_date, end_date){
+  
+  srt_date = start_date
+
+  end_date = end_date
+  
+  base_adrs = 'https://sourceforge.net/projects/dwsim/files/stats/json?'
+  
+  srt_date  = paste0('start_date=',srt_date)
+  end_date  = paste0('end_date=',end_date)
+  
+  srch_crit = paste0(srt_date,'&',end_date)
+  
+  full_adrs = paste0(base_adrs,srch_crit)
+  
+  return(full_adrs)
+
+}
+
+date_valid = function(srt_date, end_date){
+  
+  if (end_date<srt_date) "End date must be older than start date"
+  
+}
+
+results = reactive({
+  
+  withProgress(message = 'Retrieving data', style = 'notification', value = 0,{
+
+    setProgress(0.5, detail = paste("Connecting to sourceforge.net"))
+    
+    if (input$daterange[1]<input$daterange[2]) {
+      
+      full_adrs = create_address(input$daterange[1], input$daterange[2])
+      rawStats = tryCatch(readLines(full_adrs, warn=F),
+                          error=function(e) "no connection")
+    } else {
+      
+      rawStats = "bad date"  
+      
+      }
+    })
+  
+  browser()
+
+  if (!(rawStats == "no connection") && (!(rawStats=="bad date"))) result = rjson::fromJSON(rawStats) else result = rawStats 
+    
+  return(result)
+})
+
+```
+
+Inputs {.sidebar data-width=300}
+-------------------------------------
+
+<br/>
+<img src="logo_dwsim.png" alt="drawing" width="100%">
+
+### About
+
+This dashboard allows to monitor the amazing number of downloads that **DWSIM** have had worlwide, in any date range, since its first relase  until today. 
+
+### Range 
+
+The oldest date allowed is 2008-07-09, the date of the first release.
+
+```{r}
+
+dateRangeInput("daterange", "Date range:",
+               start = "2008-07-09",
+               end = Sys.Date()-1, 
+               min = "2008-07-09",
+               max = Sys.Date()-1, 
+               format = "yyyy-mm-dd", 
+               startview = "year", 
+               weekstart = 0,
+               language = "en", 
+               separator = " to ", 
+               width = "100%")
+
+actionButton(inputId = "submit", label = "Submit new range", width = '100%')
+
+```
+
+### DWSIM 
+
+DWSIM is a multiplatform, open-source, [CAPE-OPEN](http://www.colan.org) compliant chemical process simulator for Windows, Linux, Android, macOS and iOS.
+
+More information at:
+
+https://sourceforge.net/projects/dwsim/
+ 
+http://dwsim.inforside.com.br/
+
+```{r}
+
+output$notification = renderText({
+  
+  browser()
+  
+  input$submit
+  result = isolate(results())
+  msg = c()
+  if (result == "no connection") msg = paste0("<font color=\"#FF0000\"><b>", "WARNING:","</b>"," Unable to connect to sourceforge.net. There might be a problem with your network connection", "</font>")
+  if (result == "bad date") msg = paste0("<font color=\"#FF0000\"><b>", "WARNING:","</b>"," Start date must be older than End date", "</font>")
+  msg
+  })
+
+br()
+br()
+
+htmlOutput("notification")
+
+```
+
+
+Row 
+-------------------------------------
+
+### Total downloads {.value-box}
+
+```{r}
+
+output$tot_downloads = renderValueBox({
+  
+  input$submit
+  result = isolate(results())
+  if (!(result == "no connection") && (!(result=="bad date"))) {
+    total_downloads = result$total
+    valueBox(value = total_downloads,caption = "Total downloads",icon = "fa-cloud-download-alt")  
+  }
+  else valueBox(value = 0,caption = "Total downloads",icon = "fa-cloud-download-alt")
+})
+
+valueBoxOutput("tot_downloads")
+
+```
+
+
+### Countries with downloads {.value-box}
+
+```{r}
+
+output$countriesTot = renderValueBox({
+    
+  input$submit
+  result = isolate(results())
+  if (!(result == "no connection") && (!(result=="bad date"))) {
+    total_countries = length(result$countries)
+    valueBox(value = total_countries,caption = "Countries with downloads",icon = "fa-flag")    
+  } else valueBox(value = 0,caption = "Countries with downloads",icon = "fa-flag")    
+})
+
+valueBoxOutput("countriesTot")
+
+```
+
+### Days in the period {.value-box}
+
+```{r}
+
+output$dwnldsPerDay = renderValueBox({
+  
+  input$submit
+  isolate({
+    days = as.Date(input$daterange[2],"%Y-%m-%d") - as.Date(input$daterange[1],"%Y-%m-%d") 
+    result = results()  
+  })
+  if (!(result == "no connection") && (!(result=="bad date"))) {
+    total_downloads_perDay = result$total / (as.numeric(days)+1)
+    valueBox(value = format(round(total_downloads_perDay, 1), nsmall = 1),caption = "Downloads per day",icon = "fa-calendar-alt")
+  } else valueBox(value = 0,caption = "Downloads per day",icon = "fa-calendar-alt")
+})
+
+valueBoxOutput("dwnldsPerDay")
+
+```
+
+Row {.tabset}
+-------------------------------------
+
+### Total downloads by country
+    
+```{r, echo = FALSE}
+
+output$map_chart = renderHighchart({
+  
+  input$submit
+  result = isolate(results())
+  
+  if (!(result == "no connection") && (!(result=="bad date"))) {
+    
+    countries = sapply(result$countries, '[[', 1)
+    downloads = sapply(result$countries, '[[', 2)
+    
+    world <- jsonlite::fromJSON(txt = "world-palestine-highres.geo.JSON", simplifyVector = FALSE)
+    mapdata = get_data_from_map(world)
+    missing = countries %in% mapdata$name
+    missing_indx = which(missing == FALSE)
+    countries[missing_indx]
+    
+    # There are differences between the country names between sourceforge.net and world-palestine-highres.geo.JSON
+    
+    original_names = c("United States","Viet Nam","Serbia","Tanzania", "Congo - Kinshasa","Lao People's Democratic Republic","Bahamas","Korea","Brunei Darussalam")
+                        
+    replacement = c("United States of America", "Vietnam", "Republic of Serbia", "United Republic of Tanzania", "Democratic Republic of the Congo", "Laos", "The Bahamas", "South Korea", "Brunei")
+    
+    for (i in 1:length(replacement))  {
+      if (isTRUE(original_names[i] %in% countries)) {
+        countries = replace(x = countries,countries == original_names[i],as.character(replacement[i]))
+        }
+    }
+    
+    # Merging system with its respective countries. In some cases there are some simplifications. Venezuela += Aruba p.e.
+    
+    if (isTRUE("Hong Kong" %in% countries)) downloads[countries=="China"] = downloads[countries=="China"] + downloads[countries=="Hong Kong"]
+    
+    if (isTRUE("New Caledonia" %in% countries))  downloads[countries=="France"] = downloads[countries=="France"] + downloads[countries=="New Caledonia"] 
+    
+    if (isTRUE("Guadeloupe" %in% countries)) downloads[countries=="France"] = downloads[countries=="France"] + downloads[countries=="Guadeloupe"]
+    
+    if (isTRUE("Reunion" %in% countries)) downloads[countries=="France"] = downloads[countries=="France"] + downloads[countries=="Reunion"]
+    
+    if (isTRUE("Palestinian Territory" %in% countries)) downloads[countries=="Israel"] = downloads[countries=="Israel"] + downloads[countries=="Palestinian Territory"]
+      
+    if (isTRUE("Bermuda" %in% countries))  downloads[countries=="United Kingdom"] = downloads[countries=="United Kingdom"] + downloads[countries=="Bermuda"]
+    
+    if (isTRUE("Aruba" %in% countries)) downloads[countries=="Venezuela"] = downloads[countries=="Venezuela"]  + downloads[countries=="Aruba"] 
+      
+    if (isTRUE("Netherlands Antilles" %in% countries)) downloads[countries=="Venezuela"] = downloads[countries=="Venezuela"]  + downloads[countries=="Netherlands Antilles"]
+    
+    if (isTRUE("Bonaire, Saint Eustatius and Saba" %in% countries)) downloads[countries=="Venezuela"] = downloads[countries=="Venezuela"]  + downloads[countries=="Bonaire, Saint Eustatius and Saba"]
+    
+    fullLocUnknown = c("Unknown","Europe (specific country unknown)", "Anonymous Proxy", "Satellite Provider","Asia/Pacific Region (specific country unknown)",  "Virgin Islands", "Cook Islands", "Timor-Leste") 
+    #Last three must be evaluated carefully
+    
+    fullLocAdded = c("Hong Kong", "Netherlands Antilles", "New Caledonia", "Palestinian Territory", "Aruba", "Bermuda", "Reunion", "Guadeloupe", "Bonaire, Saint Eustatius and Saba")
+    
+    locUnknown=c()
+    locAdded=c()
+    
+    for (i in length(fullLocUnknown)) if (isTRUE(fullLocUnknown[i] %in% countries)) locUnknown = c(locUnknown,fullLocUnknown[i])
+    
+    for (i in length(fullLocAdded)) if (isTRUE(fullLocAdded[i] %in% countries)) locAdded = c(locAdded,fullLocAdded[i])
+    
+    locToRemove = c(locUnknown, locAdded)
+    
+    toRemove = countries %in% locToRemove 
+    
+    countries = countries[!toRemove]
+    downloads = downloads[!toRemove]
+    
+    table(countries %in% mapdata$name)
+    
+    data_world_downloads = data.frame(countries, downloads)
+    
+    n <- 4
+    colstops <- data.frame(q = 0:n/n,
+                           c = RColorBrewer::brewer.pal(n = 5, name = "Purples")) %>%
+      highcharter::list_parse2()
+ 
+    highchart(type = "map") %>%
+    hc_add_series_map(map = world,
+                  showInLegend = FALSE,
+                  nullColor = "#ffffff",
+                  borderWidth = 0,
+                  borderColor = "#FAFAFA",
+                  df = data_world_downloads,
+                  value = "downloads",
+                  joinBy = c("name", "countries"),
+                  name = "Downloads",
+                  dataLabels = list(enabled = TRUE, format = '{point.name}')) %>%
+      hc_colorAxis(stops = colstops) %>%
+      hc_chart(backgroundColor = "#ffffff") %>%
+      hc_mapNavigation(enabled = TRUE) 
+    }
+})
+
+highchartOutput("map_chart")
+
+```
+
+### Total downloads per month
+
+```{r}
+
+output$line_chart = renderHighchart({
+  
+  input$submit
+  result = isolate(results())
+  
+  if (!(result == "no connection") && (!(result=="bad date"))) {
+    
+    dates = sapply(result$downloads, '[[', 1)
+    dwnlm = sapply(result$downloads, '[[', 2)
+  
+    data_dwnlm = data.frame(as.Date(dates), dwnlm)
+    
+    dwnlm = as.matrix(dwnlm)
+    colnames(dwnlm) = as.character(c("Downloads"))
+    
+    dates = as.Date(dates)
+    dates = as.POSIXlt(dates)
+    dates = unclass(dates)
+    
+    data_ts = ts(data = dwnlm, 
+                 start = c(first(dates$year)+1900, first(dates$mon)+1), 
+                 end = c(last(dates$year)+1900, last(dates$mon)+1), 
+                 frequency = 12)
+    
+    highchart() %>%
+      hc_add_series_ts(ts = data_ts,
+                  name = "Downloads",
+                  color = last(RColorBrewer::brewer.pal(n = 5, name = "Purples")))
+    }
+  })
+    
+highchartOutput("line_chart")
+
+```
